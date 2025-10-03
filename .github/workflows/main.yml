@@ -77,7 +77,7 @@ jobs:
           --header "Authorization: Token 45989479827355dd9eaa6cfb7c0b2f7a86ffd5cb" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "squad=Squad_Test", "group=Squad_Test"],
+            "tags": ["GitHub Actions", "Squad_Test"],
             "name": "CodeQL_#${{ github.run_id }}",
             "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
