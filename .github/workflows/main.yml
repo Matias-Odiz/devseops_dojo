@@ -135,16 +135,18 @@ jobs:
       - name: Install tools
         run: sudo apt-get update && sudo apt-get install -y curl jq
 
+      - name: Set scan date
+        run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+
       - name: Download CodeQL results artifact
         uses: actions/download-artifact@v4
         with:
           name: codeql-results
 
-      - name: Set scan date
-        run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-
       - name: Find SARIF file and upload
         run: |
+          set -euo pipefail
+
           SARIF_FILE=$(find . -name "*.sarif" | head -n 1)
           echo "SARIF file detected: $SARIF_FILE"
           if [ ! -f "$SARIF_FILE" ]; then
@@ -168,37 +170,48 @@ jobs:
             -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
             -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
             -F "tags=squad=Squad_Test,group=Squad_Test" \
+            -F "apply_tags_to_findings=true" \
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
-          echo "=== import-scan response ==="
+
+          echo "=== import-scan response (dojo_import.json) ==="
           cat dojo_import.json || true
 
-          # 2) Obtener TEST_ID de la respuesta o por nombre
-          TEST_ID=$(jq -r '.test.id // empty' dojo_import.json)
-          if [ -z "$TEST_ID" ] || [ "$TEST_ID" = "null" ]; then
-            TEST_ID=$(curl -sS -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              "${DEFECTDOJO_URL}/api/v2/tests/?name=CodeQL_%23${{ github.run_id }}" | jq -r '.results[0].id // empty')
-          fi
+          # 2) TEST_ID robusto: usa test_id o test (numérico)
+          TEST_ID=$(jq -r '(.test_id // .test // empty)' dojo_import.json)
           echo "TEST_ID=${TEST_ID}"
+
+          if [ -z "${TEST_ID:-}" ] || [ "${TEST_ID}" = "null" ]; then
+            echo "No vino test en la respuesta, intento buscar por nombre…"
+            TEST_ID=$(curl -sS -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+              "${DEFECTDOJO_URL}/api/v2/tests/?name=CodeQL_%23${{ github.run_id }}" \
+              | jq -r '.results[0].id // empty')
+            echo "TEST_ID (fallback)=${TEST_ID}"
+          fi
+
+          if [ -z "${TEST_ID:-}" ] || [ "${TEST_ID}" = "null" ]; then
+            echo "No se pudo identificar el TEST_ID; termino sin etiquetar findings."
+            exit 0
+          fi
 
           # 3) Listar findings del test
           curl -sS -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
             "${DEFECTDOJO_URL}/api/v2/findings/?test=${TEST_ID}&limit=1000" -o findings.json
           echo "=== findings count ==="
-          jq '.count' findings.json
+          jq '.count' findings.json || true
 
-          # 4) PATCH: agregar tags a cada Finding (para que se vean en Open Findings)
+          # 4) PATCH tags por finding (por si apply_tags_to_findings no está soportado)
           IDS=$(jq -r '.results[].id' findings.json)
           for ID in $IDS; do
             curl -sS -X PATCH \
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -H "Content-Type: application/json" \
               -d '{"tags":["squad=Squad_Test","group=Squad_Test"]}' \
-              "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" -o /dev/null
+              "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" \
+              -o /dev/null
             echo "Etiquetado finding ${ID}"
           done
 
-          # 5) TEST: intentar crear un Finding Group y asignarlo (columna Group)
-          #    Esto puede no estar disponible en todas las versiones. Se intenta y se ignora si falla.
+          # 5) TEST de 'Group' (Finding Group nativo)
           echo "Intentando crear Finding Group…"
           GROUP_NAME="Squad Test Group"
           CREATE_GROUP_RESP=$(curl -sS -w " HTTP_CODE:%{http_code}" -X POST \
@@ -207,6 +220,7 @@ jobs:
             -d "{\"name\":\"${GROUP_NAME}\",\"test\":${TEST_ID},\"description\":\"CI demo\"}" \
             "${DEFECTDOJO_URL}/api/v2/finding_groups/")
           echo "$CREATE_GROUP_RESP"
+
           GROUP_HTTP=$(echo "$CREATE_GROUP_RESP" | sed -n 's/.*HTTP_CODE:\([0-9][0-9][0-9]\).*/\1/p')
           GROUP_ID=$(echo "$CREATE_GROUP_RESP" | sed 's/ HTTP_CODE:.*//' | jq -r '.id // empty')
 
@@ -214,7 +228,6 @@ jobs:
             echo "Finding Group creado: ID=${GROUP_ID}. Asignando a los primeros findings…"
             COUNT=0
             for ID in $IDS; do
-              # Asignar el finding al grupo (si el modelo lo permite por PATCH del finding)
               curl -sS -X PATCH \
                 -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
                 -H "Content-Type: application/json" \
@@ -225,5 +238,5 @@ jobs:
               [ "$COUNT" -ge 5 ] && break
             done
           else
-            echo "No se pudo crear Finding Group por API (HTTP $GROUP_HTTP). Se continúa sin cortar el job."
+            echo "No se pudo crear/usar Finding Group por API (HTTP $GROUP_HTTP). Se continúa sin error."
           fi
