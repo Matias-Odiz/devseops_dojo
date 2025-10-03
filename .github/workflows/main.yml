@@ -74,10 +74,10 @@ jobs:
       - name: Create engagement in DefectDojo
         run: |
           ENGAGEMENTID=$(curl --fail --location --request POST "${DEFECTDOJO_URL}/api/v2/engagements/" \
-          --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+          --header "Authorization: Token 45989479827355dd9eaa6cfb7c0b2f7a86ffd5cb" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "squad=Squad Test", "group=Squad Test"],
+            "tags": ["GitHub Actions", "squad=Squad_Test", "group=Squad_Test"],
             "name": "CodeQL_#${{ github.run_id }}",
             "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
@@ -169,4 +169,5 @@ jobs:
             -F "engagement_name=CodeQL_#${{ github.run_id }}" \
             -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
             -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
-            -F "tags=squad=Squad Test,group=Squad Test"
+            -F "tags=Squad_Test" \
+            -F "findings_group=Squad Test"
