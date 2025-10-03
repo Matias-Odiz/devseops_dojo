@@ -110,7 +110,6 @@ jobs:
         with:
           name: defectdojo1-env
           path: defectdojo1.env
-
   codeql_import_results:
     name: Publish CodeQL Scan in DefectDojo
     runs-on: ubuntu-latest
@@ -143,18 +142,18 @@ jobs:
         with:
           name: codeql-results
 
-      - name: Find SARIF file and upload
+      - name: Find SARIF file and upload + tag findings
         run: |
           set -euo pipefail
 
           SARIF_FILE=$(find . -name "*.sarif" | head -n 1)
-          echo "SARIF file detected: $SARIF_FILE"
-          if [ ! -f "$SARIF_FILE" ]; then
+          echo "SARIF file detected: ${SARIF_FILE:-<none>}"
+          if [ ! -f "${SARIF_FILE:-}" ]; then
             echo "SARIF file not found"
             exit 1
           fi
 
-          # 1) Import scan (tags a nivel test/engagement)
+          # 1) Import scan
           curl -sS -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
             -H "accept: application/json" \
             -H "Content-Type: multipart/form-data" \
@@ -173,21 +172,12 @@ jobs:
             -F "apply_tags_to_findings=true" \
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
 
-          echo "=== import-scan response (dojo_import.json) ==="
+          echo "=== import-scan response ==="
           cat dojo_import.json || true
 
-          # 2) TEST_ID robusto: usa test_id o test (numérico)
-          TEST_ID=$(jq -r '(.test_id // .test // empty)' dojo_import.json)
-          echo "TEST_ID=${TEST_ID}"
-
-          if [ -z "${TEST_ID:-}" ] || [ "${TEST_ID}" = "null" ]; then
-            echo "No vino test en la respuesta, intento buscar por nombre…"
-            TEST_ID=$(curl -sS -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              "${DEFECTDOJO_URL}/api/v2/tests/?name=CodeQL_%23${{ github.run_id }}" \
-              | jq -r '.results[0].id // empty')
-            echo "TEST_ID (fallback)=${TEST_ID}"
-          fi
-
+          # 2) TEST_ID robusto
+          TEST_ID=$(jq -r '(.test_id // .test // empty)' dojo_import.json || echo "")
+          echo "TEST_ID=${TEST_ID:-<empty>}"
           if [ -z "${TEST_ID:-}" ] || [ "${TEST_ID}" = "null" ]; then
             echo "No se pudo identificar el TEST_ID; termino sin etiquetar findings."
             exit 0
@@ -206,37 +196,35 @@ jobs:
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -H "Content-Type: application/json" \
               -d '{"tags":["squad=Squad_Test","group=Squad_Test"]}' \
-              "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" \
-              -o /dev/null
+              "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" -o /dev/null
             echo "Etiquetado finding ${ID}"
           done
 
-          # 5) TEST de 'Group' (Finding Group nativo)
-          echo "Intentando crear Finding Group…"
-          GROUP_NAME="Squad Test Group"
-          CREATE_GROUP_RESP=$(curl -sS -w " HTTP_CODE:%{http_code}" -X POST \
+          # 5) (Opcional) Intentar Finding Group SOLO si el endpoint existe
+          echo "Intentando crear Finding Group (puede no existir en v2.44.4)…"
+          CREATE_GROUP_RESP=$(curl -sS -o fg_resp.json -w "%{http_code}" -X POST \
             -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"name\":\"${GROUP_NAME}\",\"test\":${TEST_ID},\"description\":\"CI demo\"}" \
-            "${DEFECTDOJO_URL}/api/v2/finding_groups/")
-          echo "$CREATE_GROUP_RESP"
-
-          GROUP_HTTP=$(echo "$CREATE_GROUP_RESP" | sed -n 's/.*HTTP_CODE:\([0-9][0-9][0-9]\).*/\1/p')
-          GROUP_ID=$(echo "$CREATE_GROUP_RESP" | sed 's/ HTTP_CODE:.*//' | jq -r '.id // empty')
-
-          if [ "$GROUP_HTTP" = "201" ] && [ -n "$GROUP_ID" ]; then
-            echo "Finding Group creado: ID=${GROUP_ID}. Asignando a los primeros findings…"
-            COUNT=0
-            for ID in $IDS; do
-              curl -sS -X PATCH \
-                -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-                -H "Content-Type: application/json" \
-                -d "{\"finding_group\": ${GROUP_ID}}" \
-                "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" -o /dev/null
-              echo "Asignado finding ${ID} a group ${GROUP_ID}"
-              COUNT=$((COUNT+1))
-              [ "$COUNT" -ge 5 ] && break
-            done
+            -d "{\"name\":\"Squad Test Group\",\"test\":${TEST_ID},\"description\":\"CI demo\"}" \
+            "${DEFECTDOJO_URL}/api/v2/finding_groups/") || true
+          echo "HTTP fg=${CREATE_GROUP_RESP}"
+          # Solo parseo si devolvió JSON 201
+          if [ "${CREATE_GROUP_RESP}" = "201" ]; then
+            GROUP_ID=$(jq -r '.id // empty' fg_resp.json || echo "")
+            if [ -n "${GROUP_ID}" ]; then
+              echo "Finding Group creado: ${GROUP_ID}. Asignando a los primeros findings…"
+              COUNT=0
+              for ID in $IDS; do
+                curl -sS -X PATCH \
+                  -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"finding_group\": ${GROUP_ID}}" \
+                  "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" -o /dev/null
+                echo "Asignado finding ${ID} a group ${GROUP_ID}"
+                COUNT=$((COUNT+1))
+                [ "$COUNT" -ge 5 ] && break
+              done
+            fi
           else
-            echo "No se pudo crear/usar Finding Group por API (HTTP $GROUP_HTTP). Se continúa sin error."
+            echo "Endpoint de finding_groups no disponible (HTTP ${CREATE_GROUP_RESP}). Se omite sin error."
           fi
