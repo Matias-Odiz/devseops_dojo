@@ -357,3 +357,4 @@ jobs:
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
           echo "=== Respuesta DefectDojo ==="
           cat dojo_import.json || true
+ 
