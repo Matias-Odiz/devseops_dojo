@@ -126,7 +126,7 @@ jobs:
       DEFECTDOJO_SCAN_ENVIRONMENT: "Default"
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
-      DEFECTDOJO_PRODUCT_NAME: "Codigo_Prueba"
+      DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
 
     steps:
       - name: Checkout repository
@@ -302,7 +302,7 @@ jobs:
       DEFECTDOJO_SCAN_ENVIRONMENT: "Default"
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
-      DEFECTDOJO_PRODUCT_NAME: "Codigo_Prueba"
+      DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
 
     steps:
       - name: Checkout repository
