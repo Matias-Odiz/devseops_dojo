@@ -43,7 +43,7 @@ jobs:
     needs: codeql_analysis
     runs-on: ubuntu-latest
     env:
-      DEFECTDOJO_URL: "https://0ff1a91be414.ngrok-free.app"
+      DEFECTDOJO_URL: "https://f94496e7df2e.ngrok-free.app"
       DEFECTDOJO_TOKEN: "45989479827355dd9eaa6cfb7c0b2f7a86ffd5cb"
       DEFECTDOJO_ENGAGEMENT_PERIOD: 28
       DEFECTDOJO_ENGAGEMENT_STATUS: "Not Started"
