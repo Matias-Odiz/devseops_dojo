@@ -65,12 +65,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq coreutils
-
       - name: Set engagement dates
         run: |
           echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
           echo "ENDDAY=$(date -d '+28 days' +%Y-%m-%d)" >> $GITHUB_ENV
-
       - name: Create engagement in DefectDojo
         run: |
           ENGAGEMENTID=$(curl --fail --location --request POST "${DEFECTDOJO_URL}/api/v2/engagements/" \
@@ -79,7 +77,7 @@ jobs:
           --data-raw '{
             "tags": ["GitHub Actions", "Ventas"],
             "name": "CodeQL_#${{ github.run_id }}",
-            "description": "${{ github.event.head_commit.message }}",
+            "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
             "first_contacted": "'"$TODAY"'",
             "target_start": "'"$TODAY"'",
@@ -104,7 +102,6 @@ jobs:
             "orchestration_engine": '${DEFECTDOJO_ENGAGEMENT_ORCHESTRATION_ENGINE}'
           }' | jq -r '.id')
           echo "DEFECTDOJO_ENGAGEMENTID=${ENGAGEMENTID}" >> defectdojo1.env
-
       - name: Upload defectdojo.env file
         uses: actions/upload-artifact@v4
         with:
@@ -127,12 +124,12 @@ jobs:
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
       DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
-      SQUAD: "Ventas"   # <-- para etiquetar findings
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Descargar artefacto generado por codeql_analysis
       - name: Download CodeQL results artifact
         uses: actions/download-artifact@v4
         with:
@@ -145,6 +142,7 @@ jobs:
       - name: Set scan date
         run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
+      # Detectar y validar archivo SARIF
       - name: Confirm SARIF file
         run: |
           echo "Contenido del workspace:"
@@ -158,7 +156,6 @@ jobs:
           fi
           echo "Usaré: $SARIF_FILE"
           echo "SARIF_FILE=$SARIF_FILE" >> $GITHUB_ENV
-
       - name: Upload CodeQL Scan to DefectDojo
         run: |
           curl -sS -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
@@ -175,12 +172,9 @@ jobs:
             -F "engagement_name=CodeQL_#${{ github.run_id }}" \
             -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
             -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
-            -F "tags=squad=${SQUAD}" \
-            -F "apply_tags_to_findings=true" \
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
           echo "=== Respuesta DefectDojo ==="
           cat dojo_import.json || true
-
   trivy_scan:
     name: Trivy Scan
     runs-on: ubuntu-latest
@@ -194,7 +188,6 @@ jobs:
       - name: Build an image from Dockerfile
         run: |
           docker build -t kali-standard .
-
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -242,12 +235,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq coreutils
-
       - name: Set engagement dates
         run: |
           echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
           echo "ENDDAY=$(date -d '+28 days' +%Y-%m-%d)" >> $GITHUB_ENV
-
       - name: Create engagement in DefectDojo
         run: |
           ENGAGEMENTID=$(curl --fail --location --request POST "${DEFECTDOJO_URL}/api/v2/engagements/" \
@@ -256,7 +247,7 @@ jobs:
           --data-raw '{
             "tags": ["GitHub Actions", "Ventas"],
             "name": "Trivy_#${{ github.run_id }}",
-            "description": "${{ github.event.head_commit.message }}",
+            "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
             "first_contacted": "'"$TODAY"'",
             "target_start": "'"$TODAY"'",
@@ -281,7 +272,6 @@ jobs:
             "orchestration_engine": '${DEFECTDOJO_ENGAGEMENT_ORCHESTRATION_ENGINE}'
           }' | jq -r '.id')
           echo "DEFECTDOJO_ENGAGEMENTID=${ENGAGEMENTID}" >> defectdojo2.env
-
       - name: Upload defectdojo.env file
         uses: actions/upload-artifact@v4
         with:
@@ -304,12 +294,12 @@ jobs:
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
       DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
-      SQUAD: "Ventas"   # <-- para etiquetar findings
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Descargar artefacto generado por trivy_scan
       - name: Download Trivy results artifact
         uses: actions/download-artifact@v4
         with:
@@ -322,6 +312,7 @@ jobs:
       - name: Set scan date
         run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
+      # Detectar y validar archivo SARIF
       - name: Confirm SARIF file
         run: |
           echo "Contenido del workspace:"
@@ -329,13 +320,12 @@ jobs:
           echo "Buscando archivos .sarif:"
           find . -maxdepth 2 -type f -name "*.sarif" -print
           SARIF_FILE=$(find . -maxdepth 2 -type f -name "*.sarif" | head -n 1)
-          if [ -z "$SARIF_FILE" ]; entonces
+          if [ -z "$SARIF_FILE" ]; then
             echo "No se encontró ningún archivo .sarif"
             exit 1
           fi
           echo "Usaré: $SARIF_FILE"
           echo "SARIF_FILE=$SARIF_FILE" >> $GITHUB_ENV
-
       - name: Upload Trivy Scan to DefectDojo
         run: |
           curl -sS -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
@@ -352,9 +342,6 @@ jobs:
             -F "engagement_name=Trivy_#${{ github.run_id }}" \
             -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
             -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
-            -F "tags=squad=${SQUAD}" \
-            -F "apply_tags_to_findings=true" \
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
           echo "=== Respuesta DefectDojo ==="
           cat dojo_import.json || true
- 
