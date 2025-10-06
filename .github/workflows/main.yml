@@ -6,12 +6,13 @@ on:
   pull_request:
     branches: [ "main", "develop" ]
 #  schedule:
-#    - cron: '0 3 * * 1'
+#    - cron: '0 3 * * 1'  # Ejecutar cada lunes a las 3 AM UTC
 
 jobs:
   codeql_analysis:
     name: Analyze Code with CodeQL
     runs-on: ubuntu-latest
+
     permissions:
       security-events: write
       actions: read
@@ -24,12 +25,12 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: "python"
+          languages: "python"  # Ajusta según tu proyecto
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          output: codeql-results.sarif
+          output: codeql-results.sarif  # Guardar en el directorio raíz con este nombre
 
       - name: Upload CodeQL results as an artifact
         uses: actions/upload-artifact@v4
@@ -55,8 +56,6 @@ jobs:
       DEFECTDOJO_ENGAGEMENT_PEN_TEST: "true"
       DEFECTDOJO_ENGAGEMENT_CHECK_LIST: "true"
       DEFECTDOJO_PRODUCTID: "1"
-      # >>> Hardcode de squad para repo de prueba <<<
-      SQUAD: "SquadPrueba"
 
     steps:
       - name: Checkout repository
@@ -78,9 +77,9 @@ jobs:
           --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "squad='"${SQUAD}"'", "repo='${{ github.repository }}'"],
+            "tags": ["GitHub Actions"],
             "name": "CodeQL_#${{ github.run_id }}",
-            "description": "${{ github.event.head_commit.message }}",
+            "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
             "first_contacted": "'"$TODAY"'",
             "target_start": "'"$TODAY"'",
@@ -99,7 +98,7 @@ jobs:
             "branch_tag": "${{ github.ref_name }}",
             "source_code_management_uri": "https://github.com/${{ github.repository }}",
             "deduplication_on_engagement": '${DEFECTDOJO_ENGAGEMENT_DEDUPLICATION_ON_ENGAGEMENT}',
-            "product": '"${DEFECTDOJO_PRODUCTID}"',
+            "product": 1,
             "build_server": '${DEFECTDOJO_ENGAGEMENT_BUILD_SERVER}',
             "source_code_management_server": '${DEFECTDOJO_ENGAGEMENT_SOURCE_CODE_MANAGEMENT_SERVER}',
             "orchestration_engine": '${DEFECTDOJO_ENGAGEMENT_ORCHESTRATION_ENGINE}'
@@ -127,13 +126,18 @@ jobs:
       DEFECTDOJO_SCAN_ENVIRONMENT: "Default"
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
-      DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
-      # >>> Hardcode de squad para repo de prueba <<<
-      SQUAD: "SquadPrueba"
+      DEFECTDOJO_PRODUCT_NAME: "Codigo_Prueba"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Descargar artefacto generado por codeql_analysis
+      - name: Download CodeQL results artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: codeql-results
+          path: .
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y curl
@@ -141,28 +145,44 @@ jobs:
       - name: Set scan date
         run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
+      # Detectar y validar archivo SARIF
+      - name: Confirm SARIF file
+        run: |
+          echo "Contenido del workspace:"
+          ls -la .
+          echo "Buscando archivos .sarif:"
+          find . -maxdepth 2 -type f -name "*.sarif" -print
+          SARIF_FILE=$(find . -maxdepth 2 -type f -name "*.sarif" | head -n 1)
+          if [ -z "$SARIF_FILE" ]; then
+            echo "No se encontró ningún archivo .sarif"
+            exit 1
+          fi
+          echo "Usaré: $SARIF_FILE"
+          echo "SARIF_FILE=$SARIF_FILE" >> $GITHUB_ENV
+
       - name: Upload CodeQL Scan to DefectDojo
         run: |
-          curl -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
-          -H "accept: application/json" \
-          -H "Content-Type: multipart/form-data" \
-          -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-          -F "scan_date=${TODAY}" \
-          -F "minimum_severity=${DEFECTDOJO_SCAN_MINIMUM_SEVERITY}" \
-          -F "active=${DEFECTDOJO_SCAN_ACTIVE}" \
-          -F "verified=${DEFECTDOJO_SCAN_VERIFIED}" \
-          -F "scan_type=${DEFECTDOJO_SCAN_TEST_TYPE}" \
-          -F "product_name=${DEFECTDOJO_PRODUCT_NAME}" \
-          -F "file=@codeql-results.sarif;type=application/sarif+json" \
-          -F "engagement_name=CodeQL_#${{ github.run_id }}" \
-          -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
-          -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
-          -F "tags=squad=${SQUAD},repo=${GITHUB_REPOSITORY}" \
-          -F "findings_group=${SQUAD}"
+          curl -sS -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+            -H "accept: application/json" \
+            -H "Content-Type: multipart/form-data" \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            -F "scan_date=${TODAY}" \
+            -F "minimum_severity=${DEFECTDOJO_SCAN_MINIMUM_SEVERITY}" \
+            -F "active=${DEFECTDOJO_SCAN_ACTIVE}" \
+            -F "verified=${DEFECTDOJO_SCAN_VERIFIED}" \
+            -F "scan_type=${DEFECTDOJO_SCAN_TEST_TYPE}" \
+            -F "product_name=${DEFECTDOJO_PRODUCT_NAME}" \
+            -F "file=@${SARIF_FILE};type=application/sarif+json" \
+            -F "engagement_name=CodeQL_#${{ github.run_id }}" \
+            -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
+            -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
+            -o dojo_import.json -w "\nHTTP %{http_code}\n"
+          echo "=== Respuesta DefectDojo ==="
+          cat dojo_import.json || true
 
   trivy_scan:
     name: Trivy Scan
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     permissions:
       security-events: write
 
@@ -212,8 +232,6 @@ jobs:
       DEFECTDOJO_ENGAGEMENT_PEN_TEST: "true"
       DEFECTDOJO_ENGAGEMENT_CHECK_LIST: "true"
       DEFECTDOJO_PRODUCTID: "1"
-      # >>> Hardcode de squad para repo de prueba <<<
-      SQUAD: "SquadPrueba"
 
     steps:
       - name: Checkout repository
@@ -235,9 +253,9 @@ jobs:
           --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "squad='"${SQUAD}"'", "repo='${{ github.repository }}'"],
+            "tags": ["GitHub Actions"],
             "name": "Trivy_#${{ github.run_id }}",
-            "description": "${{ github.event.head_commit.message }}",
+            "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
             "first_contacted": "'"$TODAY"'",
             "target_start": "'"$TODAY"'",
@@ -256,7 +274,7 @@ jobs:
             "branch_tag": "${{ github.ref_name }}",
             "source_code_management_uri": "https://github.com/${{ github.repository }}",
             "deduplication_on_engagement": '${DEFECTDOJO_ENGAGEMENT_DEDUPLICATION_ON_ENGAGEMENT}',
-            "product": '"${DEFECTDOJO_PRODUCTID}"',
+            "product": 1,
             "build_server": '${DEFECTDOJO_ENGAGEMENT_BUILD_SERVER}',
             "source_code_management_server": '${DEFECTDOJO_ENGAGEMENT_SOURCE_CODE_MANAGEMENT_SERVER}',
             "orchestration_engine": '${DEFECTDOJO_ENGAGEMENT_ORCHESTRATION_ENGINE}'
@@ -284,13 +302,18 @@ jobs:
       DEFECTDOJO_SCAN_ENVIRONMENT: "Default"
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
-      DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
-      # >>> Hardcode de squad para repo de prueba <<<
-      SQUAD: "SquadPrueba"
+      DEFECTDOJO_PRODUCT_NAME: "Codigo_Prueba"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Descargar artefacto generado por trivy_scan
+      - name: Download Trivy results artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-results
+          path: .
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y curl
@@ -298,21 +321,37 @@ jobs:
       - name: Set scan date
         run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
+      # Detectar y validar archivo SARIF
+      - name: Confirm SARIF file
+        run: |
+          echo "Contenido del workspace:"
+          ls -la .
+          echo "Buscando archivos .sarif:"
+          find . -maxdepth 2 -type f -name "*.sarif" -print
+          SARIF_FILE=$(find . -maxdepth 2 -type f -name "*.sarif" | head -n 1)
+          if [ -z "$SARIF_FILE" ]; then
+            echo "No se encontró ningún archivo .sarif"
+            exit 1
+          fi
+          echo "Usaré: $SARIF_FILE"
+          echo "SARIF_FILE=$SARIF_FILE" >> $GITHUB_ENV
+
       - name: Upload Trivy Scan to DefectDojo
         run: |
-          curl -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
-          -H "accept: application/json" \
-          -H "Content-Type: multipart/form-data" \
-          -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-          -F "scan_date=${TODAY}" \
-          -F "minimum_severity=${DEFECTDOJO_SCAN_MINIMUM_SEVERITY}" \
-          -F "active=${DEFECTDOJO_SCAN_ACTIVE}" \
-          -F "verified=${DEFECTDOJO_SCAN_VERIFIED}" \
-          -F "scan_type=${DEFECTDOJO_SCAN_TEST_TYPE}" \
-          -F "product_name=${DEFECTDOJO_PRODUCT_NAME}" \
-          -F "file=@trivy-results.sarif;type=application/sarif+json" \
-          -F "engagement_name=Trivy_#${{ github.run_id }}" \
-          -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
-          -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
-          -F "tags=squad=${SQUAD},repo=${GITHUB_REPOSITORY}" \
-          -F "findings_group=${SQUAD}"
+          curl -sS -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+            -H "accept: application/json" \
+            -H "Content-Type: multipart/form-data" \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            -F "scan_date=${TODAY}" \
+            -F "minimum_severity=${DEFECTDOJO_SCAN_MINIMUM_SEVERITY}" \
+            -F "active=${DEFECTDOJO_SCAN_ACTIVE}" \
+            -F "verified=${DEFECTDOJO_SCAN_VERIFIED}" \
+            -F "scan_type=${DEFECTDOJO_SCAN_TEST_TYPE}" \
+            -F "product_name=${DEFECTDOJO_PRODUCT_NAME}" \
+            -F "file=@${SARIF_FILE};type=application/sarif+json" \
+            -F "engagement_name=Trivy_#${{ github.run_id }}" \
+            -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
+            -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
+            -o dojo_import.json -w "\nHTTP %{http_code}\n"
+          echo "=== Respuesta DefectDojo ==="
+          cat dojo_import.json || true
