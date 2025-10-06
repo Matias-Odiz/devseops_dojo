@@ -253,7 +253,7 @@ jobs:
           --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions"],
+            "tags": ["GitHub Actions", "Ventas"],
             "name": "Trivy_#${{ github.run_id }}",
             "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
