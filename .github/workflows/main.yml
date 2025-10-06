@@ -68,16 +68,16 @@ jobs:
 
       - name: Set engagement dates
         run: |
-          echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-          echo "ENDDAY=$(date -d '+28 days' +%Y-%m-%d)" >> $GITHUB_ENV
+            echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+            echo "ENDDAY=$(date -d '+28 days' +%Y-%m-%d)" >> $GITHUB_ENV
 
       - name: Create engagement in DefectDojo
         run: |
           ENGAGEMENTID=$(curl --fail --location --request POST "${DEFECTDOJO_URL}/api/v2/engagements/" \
-          --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+          --header "Authorization: Token 45989479827355dd9eaa6cfb7c0b2f7a86ffd5cb" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "squad=Squad_Test", "group=Squad_Test"],
+            "tags": ["GitHub Actions"],
             "name": "CodeQL_#${{ github.run_id }}",
             "description": "${{ github.event.head_commit.message }}", 
             "version": "${{ github.ref }}",
@@ -110,6 +110,8 @@ jobs:
         with:
           name: defectdojo1-env
           path: defectdojo1.env
+
+  
   codeql_import_results:
     name: Publish CodeQL Scan in DefectDojo
     runs-on: ubuntu-latest
@@ -126,105 +128,35 @@ jobs:
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
       DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install tools
-        run: sudo apt-get update && sudo apt-get install -y curl jq
-
-      - name: Set scan date
-        run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-
       - name: Download CodeQL results artifact
         uses: actions/download-artifact@v4
         with:
-          name: codeql-results
+          name: codeql-results  # El nombre del artefacto que subiste
 
-      - name: Find SARIF file and upload + tag findings
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y curl
+
+      - name: Set scan date
         run: |
-          set -euo pipefail
+            echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
-          SARIF_FILE=$(find . -name "*.sarif" | head -n 1)
-          echo "SARIF file detected: ${SARIF_FILE:-<none>}"
-          if [ ! -f "${SARIF_FILE:-}" ]; then
-            echo "SARIF file not found"
-            exit 1
-          fi
-
-          # 1) Import scan
-          curl -sS -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
-            -H "accept: application/json" \
-            -H "Content-Type: multipart/form-data" \
-            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-            -F "scan_date=${TODAY}" \
-            -F "minimum_severity=${DEFECTDOJO_SCAN_MINIMUM_SEVERITY}" \
-            -F "active=${DEFECTDOJO_SCAN_ACTIVE}" \
-            -F "verified=${DEFECTDOJO_SCAN_VERIFIED}" \
-            -F "scan_type=${DEFECTDOJO_SCAN_TEST_TYPE}" \
-            -F "product_name=${DEFECTDOJO_PRODUCT_NAME}" \
-            -F "file=@${SARIF_FILE};type=application/sarif+json" \
-            -F "engagement_name=CodeQL_#${{ github.run_id }}" \
-            -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
-            -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
-            -F "tags=squad=Squad_Test,group=Squad_Test" \
-            -F "apply_tags_to_findings=true" \
-            -o dojo_import.json -w "\nHTTP %{http_code}\n"
-
-          echo "=== import-scan response ==="
-          cat dojo_import.json || true
-
-          # 2) TEST_ID robusto
-          TEST_ID=$(jq -r '(.test_id // .test // empty)' dojo_import.json || echo "")
-          echo "TEST_ID=${TEST_ID:-<empty>}"
-          if [ -z "${TEST_ID:-}" ] || [ "${TEST_ID}" = "null" ]; then
-            echo "No se pudo identificar el TEST_ID; termino sin etiquetar findings."
-            exit 0
-          fi
-
-          # 3) Listar findings del test
-          curl -sS -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-            "${DEFECTDOJO_URL}/api/v2/findings/?test=${TEST_ID}&limit=1000" -o findings.json
-          echo "=== findings count ==="
-          jq '.count' findings.json || true
-
-          # 4) PATCH tags por finding (por si apply_tags_to_findings no está soportado)
-          IDS=$(jq -r '.results[].id' findings.json)
-          for ID in $IDS; do
-            curl -sS -X PATCH \
-              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d '{"tags":["squad=Squad_Test","group=Squad_Test"]}' \
-              "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" -o /dev/null
-            echo "Etiquetado finding ${ID}"
-          done
-
-          # 5) (Opcional) Intentar Finding Group SOLO si el endpoint existe
-          echo "Intentando crear Finding Group (puede no existir en v2.44.4)…"
-          CREATE_GROUP_RESP=$(curl -sS -o fg_resp.json -w "%{http_code}" -X POST \
-            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"Squad Test Group\",\"test\":${TEST_ID},\"description\":\"CI demo\"}" \
-            "${DEFECTDOJO_URL}/api/v2/finding_groups/") || true
-          echo "HTTP fg=${CREATE_GROUP_RESP}"
-          # Solo parseo si devolvió JSON 201
-          if [ "${CREATE_GROUP_RESP}" = "201" ]; then
-            GROUP_ID=$(jq -r '.id // empty' fg_resp.json || echo "")
-            if [ -n "${GROUP_ID}" ]; then
-              echo "Finding Group creado: ${GROUP_ID}. Asignando a los primeros findings…"
-              COUNT=0
-              for ID in $IDS; do
-                curl -sS -X PATCH \
-                  -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-                  -H "Content-Type: application/json" \
-                  -d "{\"finding_group\": ${GROUP_ID}}" \
-                  "${DEFECTDOJO_URL}/api/v2/findings/${ID}/" -o /dev/null
-                echo "Asignado finding ${ID} a group ${GROUP_ID}"
-                COUNT=$((COUNT+1))
-                [ "$COUNT" -ge 5 ] && break
-              done
-            fi
-          else
-            echo "Endpoint de finding_groups no disponible (HTTP ${CREATE_GROUP_RESP}). Se omite sin error."
-          fi
+      - name: Upload CodeQL Scan to DefectDojo
+        run: |
+          curl -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+          -H "accept: application/json" \
+          -H "Content-Type: multipart/form-data" \
+          -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+          -F "scan_date=${TODAY}" \
+          -F "minimum_severity=${DEFECTDOJO_SCAN_MINIMUM_SEVERITY}" \
+          -F "active=${DEFECTDOJO_SCAN_ACTIVE}" \
+          -F "verified=${DEFECTDOJO_SCAN_VERIFIED}" \
+          -F "scan_type=${DEFECTDOJO_SCAN_TEST_TYPE}" \
+          -F "product_name=${DEFECTDOJO_PRODUCT_NAME}" \
+          -F "file=@python.sarif;type=application/sarif+json" \
+          -F "engagement_name=CodeQL_#${{ github.run_id }}" \
+          -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
+          -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}"
