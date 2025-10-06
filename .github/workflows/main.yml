@@ -77,9 +77,9 @@ jobs:
           --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "Ventas"],
+            "tags": ["GitHub Actions", "squad=Ventas"],
             "name": "CodeQL_#${{ github.run_id }}",
-            "description": "${{ github.event.head_commit.message }}", 
+            "description": "${{ github.event.head_commit.message }}",
             "version": "${{ github.ref }}",
             "first_contacted": "'"$TODAY"'",
             "target_start": "'"$TODAY"'",
@@ -127,12 +127,12 @@ jobs:
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
       DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
+      SQUAD: "Ventas"   # <-- para etiquetar findings
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Descargar artefacto generado por codeql_analysis
       - name: Download CodeQL results artifact
         uses: actions/download-artifact@v4
         with:
@@ -145,7 +145,6 @@ jobs:
       - name: Set scan date
         run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
-      # Detectar y validar archivo SARIF
       - name: Confirm SARIF file
         run: |
           echo "Contenido del workspace:"
@@ -176,6 +175,8 @@ jobs:
             -F "engagement_name=CodeQL_#${{ github.run_id }}" \
             -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
             -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
+            -F "tags=squad=${SQUAD}" \
+            -F "apply_tags_to_findings=true" \
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
           echo "=== Respuesta DefectDojo ==="
           cat dojo_import.json || true
@@ -253,9 +254,9 @@ jobs:
           --header "Authorization: Token ${DEFECTDOJO_TOKEN}" \
           --header "Content-Type: application/json" \
           --data-raw '{
-            "tags": ["GitHub Actions", "Ventas"],
+            "tags": ["GitHub Actions", "squad=Ventas"],
             "name": "Trivy_#${{ github.run_id }}",
-            "description": "${{ github.event.head_commit.message }}", 
+            "description": "${{ github.event.head_commit.message }}",
             "version": "${{ github.ref }}",
             "first_contacted": "'"$TODAY"'",
             "target_start": "'"$TODAY"'",
@@ -303,12 +304,12 @@ jobs:
       DEFECTDOJO_SCAN_TEST_TYPE: "SARIF"
       DEFECTDOJO_PRODUCT_TYPE: "Github Actions"
       DEFECTDOJO_PRODUCT_NAME: "Prueba Boreal"
+      SQUAD: "Ventas"   # <-- para etiquetar findings
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Descargar artefacto generado por trivy_scan
       - name: Download Trivy results artifact
         uses: actions/download-artifact@v4
         with:
@@ -321,7 +322,6 @@ jobs:
       - name: Set scan date
         run: echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
 
-      # Detectar y validar archivo SARIF
       - name: Confirm SARIF file
         run: |
           echo "Contenido del workspace:"
@@ -329,7 +329,7 @@ jobs:
           echo "Buscando archivos .sarif:"
           find . -maxdepth 2 -type f -name "*.sarif" -print
           SARIF_FILE=$(find . -maxdepth 2 -type f -name "*.sarif" | head -n 1)
-          if [ -z "$SARIF_FILE" ]; then
+          if [ -z "$SARIF_FILE" ]; entonces
             echo "No se encontró ningún archivo .sarif"
             exit 1
           fi
@@ -352,6 +352,8 @@ jobs:
             -F "engagement_name=Trivy_#${{ github.run_id }}" \
             -F "close_old_findings=${DEFECTDOJO_SCAN_CLOSE_OLD_FINDINGS}" \
             -F "push_to_jira=${DEFECTDOJO_SCAN_PUSH_TO_JIRA}" \
+            -F "tags=squad=${SQUAD}" \
+            -F "apply_tags_to_findings=true" \
             -o dojo_import.json -w "\nHTTP %{http_code}\n"
           echo "=== Respuesta DefectDojo ==="
           cat dojo_import.json || true
